@@ -1,0 +1,75 @@
+---
+- hosts: all
+  become: true
+  vars:
+    project_name: cmd-tasks-tg-bot
+    project_repo: https://github.com/sharipov-ru/cmd-tasks-tg-bot.git
+    project_path: "{{ ansible_env.HOME }}/{{ project_name }}"
+  tasks:
+    - name: Install aptitude
+      apt:
+        name: aptitude
+        state: latest
+        update_cache: true
+
+    - name: Install required system packages
+      apt:
+        pkg:
+          - apt-transport-https
+          - ca-certificates
+          - curl
+          - software-properties-common
+          - python3-pip
+          - virtualenv
+          - python3-setuptools
+          - net-tools
+          - gnupg
+          - lsb-release
+          - htop
+        state: latest
+        update_cache: true
+
+    - name: Ensure github.com is a known host
+      lineinfile:
+        dest: "{{ ansible_env.HOME }}/.ssh/known_hosts"
+        create: yes
+        state: present
+        line: "{{ lookup('pipe', 'ssh-keyscan -t rsa github.com') }}"
+        regexp: "^github\\.com"
+
+    - name: Git checkout
+      ansible.builtin.git:
+        repo: "{{ project_repo }}"
+        dest: "{{ project_path }}"
+        version: main
+
+    - name: Stop container
+      docker_container:
+        name: "{{ project_name }}"
+        state: stopped
+
+    - name: Remove container
+      docker_container:
+        name: "{{ project_name }}"
+        state: absent
+
+    - name: Remove image
+      community.docker.docker_image:
+        state: absent
+        name: "{{ project_name }}"
+
+    - name: Build image
+      community.docker.docker_image:
+        name: "{{ project_name }}"
+        build:
+          path: "{{ project_path }}"
+        source: build
+
+    - name: Start a container
+      docker_container:
+        name: "{{ project_name }}"
+        image: "{{ project_name }}"
+        restart_policy: unless-stopped
+        env:
+          CMD_TASKS_TG_BOT_TOKEN: "{{ lookup('ansible.builtin.env', 'CMD_TASKS_TG_BOT_TOKEN') }}"
+          CMD_TASKS_REDIS_URL: "{{ lookup('ansible.builtin.env', 'CMD_TASKS_REDIS_URL') }}"
